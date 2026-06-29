@@ -1,14 +1,17 @@
+import 'package:flutter_ocr_native/flutter_ocr_native.dart';
 import 'package:flutter_zxing/flutter_zxing.dart' show zx, DecodeParams, Format;
 import '../scan_engine.dart';
 
 class DesktopScanEngine implements ScanEngine {
+  OcrReader? _ocr;
+
   @override
   bool get supportsLiveCamera => false;
 
   @override
   Future<BarcodeResult?> scanBarcode(ScanInput input) async {
     final path = input.filePath;
-    if (path == null) return null; // bytes-only input not supported on desktop MVP
+    if (path == null) return null;
 
     final code = await zx.readBarcodeImagePathString(
       path,
@@ -24,12 +27,22 @@ class DesktopScanEngine implements ScanEngine {
 
   @override
   Future<String> recognizeText(ScanInput input) async {
-    // Tesseract integration requires bundling eng.traineddata — post-MVP.
-    return '';
+    final path = input.filePath;
+    if (path == null) return '';
+    try {
+      _ocr ??= OcrReader();
+      final result = await _ocr!.readFromPath(path);
+      return result.text;
+    } catch (_) {
+      return '';
+    }
   }
 
   @override
-  void dispose() {}
+  void dispose() {
+    _ocr?.dispose();
+    _ocr = null;
+  }
 
   BarcodeFormat _mapFormat(int fmt) => switch (fmt) {
         Format.qrCode => BarcodeFormat.qrCode,
