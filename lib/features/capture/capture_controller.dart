@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/scan_engine.dart';
@@ -30,24 +31,46 @@ class CaptureController extends Notifier<CaptureState> {
       return await _run(ScanInput.fromPath(filePath), filePath, 'file');
     } catch (e) {
       state = state.copyWith(
-          status: CaptureStatus.error, errorMessage: e.toString());
+          status: CaptureStatus.error, errorMessage: _friendlyError(e));
       return null;
     }
   }
 
   Future<ResultsArgs?> pickFromGallery() async {
     final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.gallery);
-    if (xfile == null) return null;
-
-    state = state.copyWith(status: CaptureStatus.processing);
     try {
+      final xfile = await picker.pickImage(source: ImageSource.gallery);
+      if (xfile == null) return null;
+      state = state.copyWith(status: CaptureStatus.processing);
       return await _run(ScanInput.fromPath(xfile.path), xfile.path, 'gallery');
+    } on PlatformException catch (e) {
+      state = state.copyWith(
+          status: CaptureStatus.error, errorMessage: _friendlyError(e));
+      return null;
     } catch (e) {
       state = state.copyWith(
-          status: CaptureStatus.error, errorMessage: e.toString());
+          status: CaptureStatus.error, errorMessage: _friendlyError(e));
       return null;
     }
+  }
+
+  static String _friendlyError(Object e) {
+    if (e is PlatformException) {
+      if (e.code == 'photo_access_denied' ||
+          e.code == 'camera_access_denied' ||
+          e.code == 'access_denied') {
+        return 'Permission denied. Please allow access in Settings.';
+      }
+      return e.message ?? e.code;
+    }
+    final msg = e.toString();
+    if (msg.contains('SocketException') || msg.contains('NetworkException')) {
+      return 'Network error. Check your connection and try again.';
+    }
+    if (msg.contains('FileSystemException') || msg.contains('No such file')) {
+      return 'Could not read the file. Please try again.';
+    }
+    return 'Something went wrong. Please try again.';
   }
 
   ResultsArgs barcodeScanned(BarcodeResult barcode) {
