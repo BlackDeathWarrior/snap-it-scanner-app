@@ -57,12 +57,17 @@ class _HistoryTile extends StatelessWidget {
         record.kvPairs.firstOrNull?.value ??
         'Scan #${record.id}';
 
+    final subtitle = [
+      if (record.productBrand != null) record.productBrand!,
+      _formatDate(record.createdAt),
+    ].join(' · ');
+
     return Card(
       child: ListTile(
         leading: _inputIcon(record.inputType),
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(
-          _formatDate(record.createdAt),
+          subtitle,
           style: Theme.of(context).textTheme.bodySmall,
         ),
         trailing: IconButton(
