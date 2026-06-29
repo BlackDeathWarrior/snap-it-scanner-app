@@ -38,6 +38,17 @@ class _CapturePageState extends ConsumerState<CapturePage> {
     final state = ref.watch(captureControllerProvider);
     final isProcessing = state.status == CaptureStatus.processing;
 
+    ref.listen<CaptureState>(captureControllerProvider, (_, next) {
+      if (next.status == CaptureStatus.error && next.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(next.errorMessage!),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+        ref.read(captureControllerProvider.notifier).reset();
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Barcode & Label Scanner'),
