@@ -8,10 +8,13 @@
 
 #include <desktop_drop/desktop_drop_plugin.h>
 #include <file_selector_windows/file_selector_windows.h>
+#include <flutter_ocr_native/flutter_ocr_native_plugin.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
   DesktopDropPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("DesktopDropPlugin"));
   FileSelectorWindowsRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FileSelectorWindows"));
+  FlutterOcrNativePluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterOcrNativePlugin"));
 }
