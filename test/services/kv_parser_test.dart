@@ -41,6 +41,56 @@ void main() {
       final result = parser.parse(ocrText: 'Batch: LOT-ABC123');
       expect(_val(result, 'Batch/Lot'), contains('LOT-ABC123'));
     });
+
+    test('detects unlabeled MRP and keeps it out of Price', () {
+      final result = parser.parse(ocrText: 'M.R.P. ₹120.00 incl. of all taxes');
+      expect(_val(result, 'MRP'), contains('120'));
+      // MRP runs before Price, so it should not also register as Price.
+      expect(_val(result, 'Price'), isNull);
+    });
+
+    test('detects MRP with /- suffix', () {
+      final result = parser.parse(ocrText: 'MRP 120/-');
+      expect(_val(result, 'MRP'), contains('120'));
+    });
+
+    test('detects quantity label', () {
+      final result = parser.parse(ocrText: 'Qty 6 N');
+      expect(_val(result, 'Quantity'), contains('6'));
+    });
+
+    test('Net Qty does not double-register as Weight/Volume', () {
+      final result = parser.parse(ocrText: 'Net Qty 500 g');
+      expect(_val(result, 'Quantity'), contains('500'));
+      expect(_val(result, 'Weight/Volume'), isNull);
+    });
+
+    test('detects HSN code', () {
+      final result = parser.parse(ocrText: 'HSN Code 04050020');
+      expect(_val(result, 'HSN'), '04050020');
+    });
+
+    test('detects serial number', () {
+      final result = parser.parse(ocrText: 'Serial No. ABC12345');
+      expect(_val(result, 'Serial'), contains('ABC12345'));
+    });
+
+    test('detects IMEI as Serial', () {
+      final result = parser.parse(ocrText: 'IMEI 358240051111110');
+      expect(_val(result, 'Serial'), contains('358240051111110'));
+    });
+  });
+
+  group('key normalization', () {
+    test('explicit mrp label normalizes to MRP', () {
+      final result = parser.parse(ocrText: 'mrp: 99.00');
+      expect(_val(result, 'MRP'), '99.00');
+    });
+
+    test('explicit qty label normalizes to Quantity', () {
+      final result = parser.parse(ocrText: 'Qty: 12');
+      expect(_val(result, 'Quantity'), '12');
+    });
   });
 
   group('barcode classification', () {
@@ -85,6 +135,21 @@ void main() {
       // OCR Brand wins (first), product Brand is not duplicated
       expect(_val(result, 'Brand'), 'Acme');
       expect(_val(result, 'Product Name'), 'Widget');
+    });
+
+    test('existing values win over AI fields in lookupWithAi merge order', () {
+      // Mirrors CaptureController.lookupWithAi: existing values are seeded,
+      // AI fields are spread first so existing (seed) keys dominate the map.
+      const existing = {'MRP': '120', 'Brand': 'Acme'};
+      const aiFields = {'MRP': '999', 'HSN': '1905'};
+      final merged = parser.parse(
+        ocrText: '',
+        productFields: {...aiFields, ...existing},
+      );
+      // Existing MRP wins; AI does not overwrite it.
+      expect(_val(merged, 'MRP'), '120');
+      // AI-only field is still added.
+      expect(_val(merged, 'HSN'), '1905');
     });
   });
 

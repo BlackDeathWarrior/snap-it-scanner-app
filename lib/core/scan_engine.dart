@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' show Offset;
 
 enum BarcodeFormat {
   qrCode,
@@ -19,8 +20,13 @@ enum BarcodeFormat {
 class BarcodeResult {
   final String value;
   final BarcodeFormat format;
+  final List<Offset>? corners;
 
-  const BarcodeResult({required this.value, required this.format});
+  const BarcodeResult({
+    required this.value,
+    required this.format,
+    this.corners,
+  });
 }
 
 class ScanInput {

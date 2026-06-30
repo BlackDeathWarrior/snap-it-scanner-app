@@ -7,6 +7,7 @@ import 'services/kv_parser.dart';
 import 'services/product_lookup.dart';
 import 'services/app_database.dart';
 import 'services/history_repository.dart';
+import 'services/app_settings.dart';
 
 final scanEngineProvider = Provider<ScanEngine>((ref) {
   final engine =
@@ -17,8 +18,12 @@ final scanEngineProvider = Provider<ScanEngine>((ref) {
 
 final kvParserProvider = Provider<KvParser>((ref) => KvParser());
 
-final productLookupProvider =
-    Provider<ProductLookup>((ref) => ProductLookup());
+final appSettingsProvider = Provider<AppSettings>((ref) => AppSettings());
+
+final productLookupProvider = Provider<ProductLookup>((ref) {
+  final settings = ref.watch(appSettingsProvider);
+  return ProductLookup(apiKeyResolver: settings.getAnthropicKey);
+});
 
 final appDatabaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();

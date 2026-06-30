@@ -25,7 +25,7 @@ class App extends StatelessWidget {
       title: 'Barcode Scanner',
       theme: appTheme,
       darkTheme: appDarkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.dark,
       routerConfig: appRouter,
     );
   }
