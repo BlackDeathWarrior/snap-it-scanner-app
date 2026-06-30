@@ -151,15 +151,22 @@ const IDENTIFY_PROMPT =
   'Use an empty string for any field you cannot determine, and {} for ' +
   'extra when there is nothing else.';
 
+/** A generative vision call: image + prompt → raw model text. */
+export type VisionFn = (imageDataUrl: string, prompt: string) => Promise<string>;
+
 /**
- * Google-Lens-style "identify product from photo" using Claude vision. Mirrors
- * ProductLookup.lookupByImage in the Flutter app. Throws OcrError (with
- * needsKey) when no Claude key is configured.
+ * Google-Lens-style "identify product from photo" using a generative vision
+ * model. Mirrors ProductLookup.lookupByImage in the Flutter app. Provider is
+ * injected (`vision`) so this works with Claude or Gemini; `sourceLabel` becomes
+ * the resulting product's `source`. Throws OcrError (with needsKey) when the
+ * chosen provider has no key configured.
  */
 export async function identifyFromImage(
   imageDataUrl: string,
+  vision: VisionFn = callClaudeVision,
+  sourceLabel = 'Claude Vision',
 ): Promise<ProductInfo | null> {
-  const text = await callClaudeVision(imageDataUrl, IDENTIFY_PROMPT);
+  const text = await vision(imageDataUrl, IDENTIFY_PROMPT);
   const parsed = extractJson(text);
   if (!parsed) throw new OcrError('Could not read the AI response.');
 
@@ -200,7 +207,7 @@ export async function identifyFromImage(
     description: field('description'),
     quantity: field('quantity'),
     price: field('price'),
-    source: 'Claude Vision',
+    source: sourceLabel,
     extra,
   };
 }

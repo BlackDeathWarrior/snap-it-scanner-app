@@ -11,12 +11,21 @@ const ENGINE_META: Record<
   { name: string; tag: string; needsKey: boolean }
 > = {
   claude: { name: 'Claude', tag: 'Your API key', needsKey: true },
+  gemini: { name: 'Gemini', tag: 'Your API key', needsKey: true },
   google: { name: 'Google Vision', tag: 'Via backend', needsKey: false },
 };
 
 export function SettingsScreen() {
-  const { claudeKey, ocrEngine, usage, setClaudeKey, setOcrEngine, resetUsage } =
-    useSettings();
+  const {
+    claudeKey,
+    geminiKey,
+    ocrEngine,
+    usage,
+    setClaudeKey,
+    setGeminiKey,
+    setOcrEngine,
+    resetUsage,
+  } = useSettings();
 
   return (
     <div className="space-y-6">
@@ -24,8 +33,8 @@ export function SettingsScreen() {
       <section className="card p-4">
         <h2 className="mb-1 text-sm font-bold">OCR Engine</h2>
         <p className="mb-3 text-xs text-slate-400">
-          Choose how text is read from images. Claude uses your own API key;
-          Google Vision runs through the app's backend (no key needed here).
+          Choose how text is read from images. Claude and Gemini use your own API
+          key and call the provider directly from your browser.
         </p>
         <div className="grid grid-cols-2 gap-2">
           {ENGINE_LIST.map((engine) => {
@@ -65,11 +74,17 @@ export function SettingsScreen() {
           onSave={setClaudeKey}
           placeholder="sk-ant-..."
         />
+        <KeyField
+          label="Gemini API key"
+          help="Stored only in this browser. Required for Gemini OCR & AI product lookup."
+          value={geminiKey}
+          onSave={setGeminiKey}
+          placeholder="AIza..."
+        />
         <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300/90">
-          Your Claude key never leaves your device — it's saved in local storage
-          and sent directly to Anthropic from your browser. Google Vision is
-          authenticated server-side by the backend, so no Google key is needed
-          here.
+          Your Claude and Gemini keys never leave your device — they're saved in
+          local storage and sent directly to Anthropic / Google from your browser
+          (no backend hop, so they're fast).
         </p>
       </section>
 
@@ -88,13 +103,13 @@ export function SettingsScreen() {
           <UsageBar
             key={engine.id}
             name={ENGINE_META[engine.id].name}
-            count={usage[engine.id]}
+            count={usage[engine.id] ?? 0}
             reference={USAGE_REFERENCE[engine.id]}
           />
         ))}
         <p className="text-[11px] text-slate-500">
-          Counters track requests made from this browser. Google's bar scales to
-          its 1,000/month free tier; counters reset at the start of each month.
+          Counters track requests made from this browser; they reset at the start
+          of each month.
         </p>
       </section>
     </div>

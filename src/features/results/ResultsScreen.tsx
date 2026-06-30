@@ -7,12 +7,22 @@ import { kvToCsv, downloadCsv } from '../../services/csvExport';
 import { addScan } from '../../services/historyRepo';
 import { identifyFromImage, productToKvMap } from '../../services/productLookup';
 import { OcrError } from '../../engines';
+import { callClaudeVision } from '../../engines/claudeEngine';
+import { callGeminiVision } from '../../engines/geminiEngine';
 
 export function ResultsScreen() {
   const navigate = useNavigate();
   const active = useScanSession((s) => s.active);
   const setPairs = useScanSession((s) => s.setPairs);
   const recordUsage = useSettings((s) => s.recordUsage);
+  const ocrEngine = useSettings((s) => s.ocrEngine);
+
+  // The manual re-scan follows the active generative engine; Google Vision has
+  // no structured path, so fall back to Claude there.
+  const ai =
+    ocrEngine === 'gemini'
+      ? { name: 'Gemini', vision: callGeminiVision, source: 'Gemini', id: 'gemini' as const }
+      : { name: 'Claude', vision: callClaudeVision, source: 'Claude Vision', id: 'claude' as const };
 
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -77,10 +87,14 @@ export function ResultsScreen() {
     setAiMsg(null);
     setAiNeedsKey(false);
     try {
-      const info = await identifyFromImage(active.imageDataUrl);
-      recordUsage('claude');
+      const info = await identifyFromImage(
+        active.imageDataUrl,
+        ai.vision,
+        ai.source,
+      );
+      recordUsage(ai.id);
       if (!info) {
-        setAiMsg('Claude could not identify anything in the image.');
+        setAiMsg(`${ai.name} could not identify anything in the image.`);
         return;
       }
       // Existing values win; AI fills gaps only (mirrors the Flutter merge).
@@ -92,7 +106,7 @@ export function ResultsScreen() {
         value,
       }));
       setPairs(next);
-      setAiMsg('Added details from Claude.');
+      setAiMsg(`Added details from ${ai.name}.`);
     } catch (e) {
       setAiNeedsKey(e instanceof OcrError && e.needsKey);
       setAiMsg(e instanceof Error ? e.message : 'AI lookup failed.');
@@ -167,7 +181,7 @@ export function ResultsScreen() {
             onClick={identifyWithAi}
             disabled={aiBusy}
           >
-            {aiBusy ? 'Asking Claude…' : '🔄 Re-scan with Claude'}
+            {aiBusy ? `Asking ${ai.name}…` : `🔄 Re-scan with ${ai.name}`}
           </button>
           {aiMsg && (
             <div className="mt-2 text-center text-xs text-slate-300">
