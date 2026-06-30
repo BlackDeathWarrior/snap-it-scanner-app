@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../../store/settings';
 import { useScanSession } from '../../store/scanSession';
 import { getEngine, ENGINE_LIST, OcrError } from '../../engines';
+import { callClaudeVision } from '../../engines/claudeEngine';
+import { callGeminiVision } from '../../engines/geminiEngine';
 import { decodeImage, decodeFromCamera } from '../../engines/barcode';
 import { kvParser } from '../../services/kvParser';
 import {
@@ -13,6 +15,27 @@ import {
 import type { InputType } from '../../services/historyRepo';
 import { fileToDataUrl, preprocessForVision } from '../../ui/imageUtils';
 import { CameraIcon, UploadIcon } from '../../ui/icons';
+import type { OcrEngineId } from '../../store/settings';
+import type { VisionFn } from '../../services/productLookup';
+
+/**
+ * Generative engines read a label straight into structured fields (one call via
+ * identifyFromImage). Non-generative engines (Google Vision) return raw text for
+ * the heuristic kvParser instead. Maps each generative engine to its vision call
+ * and the source label shown on results.
+ */
+const GENERATIVE: Partial<
+  Record<OcrEngineId, { vision: VisionFn; sourceLabel: string }>
+> = {
+  claude: { vision: callClaudeVision, sourceLabel: 'Claude Vision' },
+  gemini: { vision: callGeminiVision, sourceLabel: 'Gemini' },
+};
+
+const ENGINE_CHIP: Record<OcrEngineId, string> = {
+  claude: 'Claude',
+  gemini: 'Gemini',
+  google: 'Google',
+};
 
 export function CaptureScreen() {
   const navigate = useNavigate();
@@ -55,17 +78,23 @@ export function CaptureScreen() {
         }
 
         const engine = getEngine(ocrEngine);
+        const generative = GENERATIVE[ocrEngine];
         let ocrText = '';
         let pairs;
 
-        if (ocrEngine === 'claude') {
-          // Single structured Claude call: it reads the label into demarcated
-          // fields directly, so there's no need for a second manual lookup.
-          setStage('Reading label with Claude…');
+        if (generative) {
+          // Single structured call: a generative model (Claude/Gemini) reads the
+          // label into demarcated fields directly, so there's no need for a
+          // second manual lookup.
+          setStage(`Reading label with ${ENGINE_CHIP[ocrEngine]}…`);
           let aiFields: Record<string, string> | null = null;
           try {
-            const info = await identifyFromImage(image);
-            recordUsage('claude');
+            const info = await identifyFromImage(
+              image,
+              generative.vision,
+              generative.sourceLabel,
+            );
+            recordUsage(ocrEngine);
             if (info) aiFields = productToKvMap(info);
           } catch (e) {
             if (e instanceof OcrError && e.needsKey) {
@@ -175,7 +204,7 @@ export function CaptureScreen() {
                   : 'bg-white/5 text-slate-300 hover:bg-white/10'
               }`}
             >
-              {e.id === 'claude' ? 'Claude' : 'Google'}
+              {ENGINE_CHIP[e.id]}
             </button>
           ))}
         </div>

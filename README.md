@@ -9,12 +9,15 @@ local history — all from a single URL on any device.
 
 ## Features
 
-- **Two OCR engines, switchable in Settings:**
+- **Three OCR engines, switchable in Settings:**
   - **Claude Vision** — bring your own Anthropic API key (stored in your browser). On capture it
     runs a **single structured call** that reads a product label straight into demarcated fields
     (Product Name, Brand, MRP, Quantity, Expiry, Batch/Lot, HSN, …).
+  - **Gemini** — bring your own Google AI Studio API key (stored in your browser). Calls Gemini
+    (`gemini-2.5-flash`) **directly from the browser**, so it's a fast alternative to the backend
+    Vision path. Same structured single-call extraction as Claude.
   - **Google Cloud Vision** — authenticated **server-side** via the bundled backend (OAuth2
-    service account). No Google key needed in the browser.
+    service account). No Google key needed in the browser, but every scan round-trips the backend.
 - **Image cleanup before OCR** — EXIF orientation fix, downscale, and a mild contrast lift for
   faint labels (`src/ui/imageUtils.ts → preprocessForVision`).
 - **Barcode / QR decode** via ZXing (camera stream + still image) with Open Food Facts /
@@ -28,7 +31,7 @@ local history — all from a single URL on any device.
 
 ```
 src/            React PWA (Vite)
-  engines/      claudeEngine, googleVisionEngine, barcode (ZXing), ocrEngine (interface)
+  engines/      claudeEngine, geminiEngine, googleVisionEngine, barcode (ZXing), ocrEngine (interface)
   services/     kvParser, productLookup, historyRepo (Dexie), csvExport
   features/     capture, results, history, settings screens
   store/        zustand: settings (keys, engine, usage), scanSession
@@ -38,8 +41,8 @@ server/         Express OAuth2 proxy for Google Vision (index.ts, vision.ts)
 
 The **only** server-side piece is the Google Vision proxy: the browser POSTs a base64 image to
 `/api/vision`; Express mints an OAuth2 token from a service account and calls Google. (Google's
-Vision API rejects API-key auth, which is why this proxy exists.) Claude stays a direct
-browser → Anthropic call with the user's own key.
+Vision API rejects API-key auth, which is why this proxy exists.) Claude and Gemini stay direct
+browser → provider calls with the user's own key — no backend, which is what makes them faster.
 
 ## Develop
 

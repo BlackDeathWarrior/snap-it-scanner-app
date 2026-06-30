@@ -33,6 +33,9 @@ npm run build        # production build → dist/
 
 - **`claudeEngine.ts`** — Claude vision, **browser BYO-key** (`x-api-key`, direct to Anthropic).
   Model `claude-opus-4-8`. `callClaudeVision(image, prompt)` is the shared low-level call.
+- **`geminiEngine.ts`** — Gemini vision, **browser BYO-key** (`x-goog-api-key`, direct to Google's
+  Generative Language API — CORS-allowed, no backend). Model `gemini-2.5-flash`.
+  `callGeminiVision(image, prompt)` is the shared low-level call. Same generative family as Claude.
 - **`googleVisionEngine.ts`** — POSTs the base64 image to **`/api/vision`** (the Express backend).
   The backend authenticates with an OAuth2 service account — Google's Vision API does **not**
   accept API-key auth, which is the whole reason the backend exists. No per-user Google key.
@@ -43,21 +46,25 @@ npm run build        # production build → dist/
 `process(imageDataUrl, inputType)`:
 1. `preprocessForVision` (EXIF orientation fix + downscale + mild contrast) — `src/ui/imageUtils.ts`.
 2. Decode barcode; if found, best-effort product lookup (`services/productLookup.ts`).
-3. **Engine branch:**
-   - **Claude** → one structured call `identifyFromImage` (the `IDENTIFY_PROMPT` JSON extractor) →
-     demarcated fields directly. **No second manual lookup** (that was the old token-burning path).
+3. **Engine branch** — keyed on engine *family*, not a single id (see `GENERATIVE` map):
+   - **Generative (Claude / Gemini)** → one structured call `identifyFromImage(image, visionFn,
+     sourceLabel)` (the `IDENTIFY_PROMPT` JSON extractor) → demarcated fields directly. **No second
+     manual lookup** (that was the old token-burning path). The provider's `callXVision` fn is
+     injected, so adding another generative engine needs no new branch.
    - **Google** → `recognizeText` raw text → heuristic `kvParser`.
 4. Store `ActiveScan` in `scanSession` (zustand), navigate to Results.
 
-On Results, the **"Re-scan with Claude"** button is an *optional* refine (re-runs
-`identifyFromImage`, existing values win), not a required step.
+On Results, the **"Re-scan with …"** button is an *optional* refine (re-runs `identifyFromImage`,
+existing values win), not a required step. It follows the active generative engine (Claude or
+Gemini); with Google selected it falls back to Claude.
 
 ### Services (`src/services/`)
 
 - **`kvParser.ts`** — pure-Dart-ported heuristic key/value extractor (price, MRP, weight, expiry,
   batch, HSN, serial, quantity; vCard/WiFi/URL QR payloads). Unit-tested.
 - **`productLookup.ts`** — `ProductInfo`, `productToKvMap`, barcode lookup (UPCitemdb → Open Food
-  Facts), and `identifyFromImage` (Claude structured extraction).
+  Facts), and `identifyFromImage(image, vision, sourceLabel)` (provider-agnostic structured
+  extraction; defaults to Claude). `VisionFn` is the injected `(image, prompt) => Promise<string>`.
 - **`historyRepo.ts`** — Dexie/IndexedDB `ScanRecord` store (`snapit-history`).
 - **`csvExport.ts`** — `kvToCsv` (single scan, 2-col) and `historyToCsv` (wide: one row per scan,
   union of all fields as columns) + `downloadCsv`.
