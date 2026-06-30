@@ -5,7 +5,7 @@ codes and product labels from your camera or an uploaded image, reads the text w
 choice of OCR engine, extracts editable key/value fields, looks up products, and saves a
 local history — all from a single URL on any device.
 
-> Originally a Flutter app; now a single React PWA + a thin OCR backend. No Flutter, no Tesseract.
+> React PWA + a thin OCR backend.
 
 ## Features
 
