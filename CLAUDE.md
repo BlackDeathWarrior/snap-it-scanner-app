@@ -1,121 +1,82 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-A Flutter single-codebase multi-platform barcode/QR/OCR scanner app targeting **Windows + Android + iOS**. Scans product images, decodes barcodes/QR codes, runs OCR, extracts key-value pairs from labels, and looks up product info via Open Food Facts.
+**Snap-It Scanner** — an installable React + TypeScript + Vite **PWA** that scans
+barcodes/QR codes and product labels, reads text via an OCR engine, extracts editable
+key/value fields, looks up products, and stores a local history. A thin **Express backend**
+(`server/`) exists solely to authenticate Google Cloud Vision via OAuth2.
 
-The full implementation plan is in [i-want-to-create-refactored-ember.md](i-want-to-create-refactored-ember.md).
+> History: this began as a Flutter app. It has been fully rewritten as a PWA and the Flutter
+> project (and Tesseract OCR) have been removed. The React app now lives at the repo root.
 
 ## Commands
 
 ```sh
-# Run on target platforms
-flutter run -d windows
-flutter run -d <android-device-id>
-flutter run -d <ios-device-id>
-
-# Tests
-flutter test                          # all unit tests
-flutter test test/services/kv_parser_test.dart  # single test file
-
-# Build
-flutter build apk
-flutter build windows
-flutter build ios
-
-# Check dependencies
-flutter pub get
-flutter pub outdated
+npm install
+npm run dev          # Vite dev server (http://localhost:5173)
+npm run server       # Express Google Vision proxy (http://localhost:8787)
+npm run dev:all      # both together (Vite proxies /api → 8787)
+npm run test         # Vitest unit tests
+npm run typecheck    # tsc for app (tsconfig.json) + server (server/tsconfig.json)
+npm run build        # production build → dist/
 ```
 
 ## Architecture
 
-### Platform Abstraction (critical constraint)
+### OCR engines (`src/engines/`)
 
-`mobile_scanner` and all `google_mlkit_*` packages **do not support Windows**. The entire scanning/OCR path is hidden behind a `ScanEngine` abstract interface in `lib/core/scan_engine.dart`:
+`OcrEngine` (`ocrEngine.ts`) is the shared interface: `id`, `label`, `isReady()`,
+`recognizeText(imageDataUrl)`. Engines are registered in `index.ts` (`ENGINES`, `ENGINE_LIST`).
 
-```dart
-abstract class ScanEngine {
-  Future<BarcodeResult?> scanBarcode(InputImage img);
-  Future<String> recognizeText(InputImage img);
-  bool get supportsLiveCamera;
-}
-```
+- **`claudeEngine.ts`** — Claude vision, **browser BYO-key** (`x-api-key`, direct to Anthropic).
+  Model `claude-opus-4-8`. `callClaudeVision(image, prompt)` is the shared low-level call.
+- **`googleVisionEngine.ts`** — POSTs the base64 image to **`/api/vision`** (the Express backend).
+  The backend authenticates with an OAuth2 service account — Google's Vision API does **not**
+  accept API-key auth, which is the whole reason the backend exists. No per-user Google key.
+- **`barcode.ts`** — ZXing still-image + live-camera decode.
 
-Two concrete implementations:
-- **`MobileScanEngine`** (`lib/core/engines/mobile_scan_engine.dart`) — Android/iOS only. Uses `mobile_scanner` (live camera) + `google_mlkit_text_recognition` (OCR).
-- **`DesktopScanEngine`** (`lib/core/engines/desktop_scan_engine.dart`) — Windows only. Uses `flutter_zxing` (barcode/QR from still image) + `tesseract_ocr` FFI (OCR, requires bundled `eng.traineddata`).
+### Capture flow (`src/features/capture/CaptureScreen.tsx`)
 
-Engine is selected at startup via `Platform.isWindows` and injected via Riverpod. **No platform branching anywhere else in the app.**
+`process(imageDataUrl, inputType)`:
+1. `preprocessForVision` (EXIF orientation fix + downscale + mild contrast) — `src/ui/imageUtils.ts`.
+2. Decode barcode; if found, best-effort product lookup (`services/productLookup.ts`).
+3. **Engine branch:**
+   - **Claude** → one structured call `identifyFromImage` (the `IDENTIFY_PROMPT` JSON extractor) →
+     demarcated fields directly. **No second manual lookup** (that was the old token-burning path).
+   - **Google** → `recognizeText` raw text → heuristic `kvParser`.
+4. Store `ActiveScan` in `scanSession` (zustand), navigate to Results.
 
-### State Management
+On Results, the **"Re-scan with Claude"** button is an *optional* refine (re-runs
+`identifyFromImage`, existing values win), not a required step.
 
-`flutter_riverpod` throughout. Providers live close to their feature. The scan engine is a top-level provider injected in `main.dart`.
+### Services (`src/services/`)
 
-### Project Structure
+- **`kvParser.ts`** — pure-Dart-ported heuristic key/value extractor (price, MRP, weight, expiry,
+  batch, HSN, serial, quantity; vCard/WiFi/URL QR payloads). Unit-tested.
+- **`productLookup.ts`** — `ProductInfo`, `productToKvMap`, barcode lookup (UPCitemdb → Open Food
+  Facts), and `identifyFromImage` (Claude structured extraction).
+- **`historyRepo.ts`** — Dexie/IndexedDB `ScanRecord` store (`snapit-history`).
+- **`csvExport.ts`** — `kvToCsv` (single scan, 2-col) and `historyToCsv` (wide: one row per scan,
+  union of all fields as columns) + `downloadCsv`.
 
-```
-lib/
-  main.dart                       # bootstrap, engine selection, ProviderScope
-  core/
-    scan_engine.dart              # abstract ScanEngine + BarcodeResult + InputImage models
-    engines/
-      mobile_scan_engine.dart
-      desktop_scan_engine.dart
-  features/
-    capture/                      # camera / gallery / drag-drop UI + controllers
-    results/                      # editable key-value display, copy/share
-    history/                      # saved scans list + detail view
-  services/
-    kv_parser.dart                # heuristic KV extractor (pure Dart, offline)
-    product_lookup.dart           # Open Food Facts client + on-device cache
-    history_repository.dart       # drift DAO
-  ui/                             # shared widgets, theme, design tokens
-```
+### State (`src/store/`)
 
-### KV Parser (`lib/services/kv_parser.dart`)
+`zustand`. `settings.ts` persists `claudeKey`, `ocrEngine` (`'claude' | 'google'`), and monthly
+usage counters. `scanSession.ts` holds the scan under review (ephemeral).
 
-Pure-Dart offline pipeline — must be heavily unit-tested (TDD):
-1. Normalize OCR text → trimmed lines
-2. Split lines with `:` or `=` into explicit key/value pairs
-3. Regex matchers for unlabeled values: price, weight/volume, dates/expiry, quantity, batch/lot, raw barcode digits
-4. Classify QR payloads (URL, vCard, WiFi, plain text) → typed key-values
-5. Merge with Open Food Facts fields when a barcode resolved
-6. Output `List<KeyValue>` (ordered, user-editable)
+### Backend (`server/`)
 
-### Storage
+`index.ts` — Express, `POST /api/vision`. `vision.ts` — `google-auth-library` `GoogleAuth`
+(scope `cloud-vision`) → Bearer token → Vision `images:annotate`. Credentials via
+`GOOGLE_APPLICATION_CREDENTIALS` (see `.env.example`; `service-account.json` is git-ignored).
 
-`drift` ORM (with `sqflite_common_ffi` init on Windows) for local scan history.
+## Conventions
 
-### Routing
-
-`go_router` for navigation between Capture → Results → History screens.
-
-## Key Package Constraints
-
-- `mobile_scanner` + `google_mlkit_text_recognition`: Android/iOS/macOS only
-- `flutter_zxing`: Windows (and others) for still-image barcode decode
-- `tesseract_ocr`: Windows — requires bundling `eng.traineddata` as asset and shipping the native lib
-- `desktop_drop` + `file_selector`: Windows drag-and-drop / file import
-- `sqflite_common_ffi`: required for drift on Windows (desktop FFI init before app starts)
-
-Always pin package versions from `pub.dev` at implementation time — do not rely on memory for version numbers.
-
-## Platform Setup Requirements
-
-- **Android:** `AndroidManifest.xml` camera permission; ML Kit barcode model dependency; `minSdk` per `mobile_scanner` (API 21+)
-- **iOS:** `NSCameraUsageDescription` + `NSPhotoLibraryUsageDescription` in `Info.plist`; min iOS 12
-- **Windows:** Flutter desktop enabled; Tesseract `eng.traineddata` bundled as asset; `sqflite_common_ffi` initialized before `runApp`
-
-## Build Milestones (order matters)
-
-1. Scaffold — `flutter create --platforms=windows,android,ios`, deps, Riverpod + go_router + theme
-2. Engine abstraction — `ScanEngine` interface + models + platform-selected provider
-3. Mobile engine — live camera barcode/QR + ML Kit OCR + gallery pick
-4. Results + KV parser — TDD parser + editable results screen
-5. Product lookup — Open Food Facts + cache + merge into results
-6. History — drift schema + CRUD
-7. Desktop engine — `flutter_zxing` + Tesseract + `desktop_drop`/`file_selector`
-8. Polish — permissions, error/loading/empty states, responsive layout, accessibility, app icons
+- Engine selection is the **only** place that branches on OCR provider — keep provider logic out
+  of the rest of the app.
+- Do **not** binarize/grayscale images for the vision APIs (hurts Claude/Google accuracy); the
+  right cleanup is orientation + resolution + mild contrast.
+- Pin package versions from pub/npm at implementation time; don't rely on memory.
