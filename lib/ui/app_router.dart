@@ -3,6 +3,7 @@ import '../features/capture/capture_page.dart';
 import '../features/results/results_page.dart';
 import '../features/history/history_page.dart';
 import '../features/history/history_detail_page.dart';
+import '../features/settings/settings_page.dart';
 import '../services/kv_parser.dart';
 import '../core/scan_engine.dart';
 
@@ -25,6 +26,10 @@ final appRouter = GoRouter(
       builder: (context, state) => const HistoryPage(),
     ),
     GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsPage(),
+    ),
+    GoRoute(
       path: '/history/:id',
       builder: (context, state) {
         final id = int.parse(state.pathParameters['id']!);
@@ -40,6 +45,7 @@ class ResultsArgs {
   final List<KeyValue> kvPairs;
   final String inputType;
   final String? imagePath;
+  final String? productImageUrl;
 
   const ResultsArgs({
     this.barcode,
@@ -47,5 +53,6 @@ class ResultsArgs {
     required this.kvPairs,
     required this.inputType,
     this.imagePath,
+    this.productImageUrl,
   });
 }

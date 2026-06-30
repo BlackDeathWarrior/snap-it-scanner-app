@@ -1,3 +1,4 @@
+import 'dart:ui' show Offset;
 import 'package:flutter_ocr_native/flutter_ocr_native.dart';
 import 'package:flutter_zxing/flutter_zxing.dart' show zx, DecodeParams, Format;
 import '../scan_engine.dart';
@@ -19,9 +20,21 @@ class DesktopScanEngine implements ScanEngine {
     );
     if (!code.isValid || code.text == null) return null;
 
+    List<Offset>? corners;
+    final pos = code.position;
+    if (pos != null) {
+      corners = [
+        Offset(pos.topLeftX.toDouble(), pos.topLeftY.toDouble()),
+        Offset(pos.topRightX.toDouble(), pos.topRightY.toDouble()),
+        Offset(pos.bottomRightX.toDouble(), pos.bottomRightY.toDouble()),
+        Offset(pos.bottomLeftX.toDouble(), pos.bottomLeftY.toDouble()),
+      ];
+    }
+
     return BarcodeResult(
       value: code.text!,
       format: _mapFormat(code.format ?? Format.none),
+      corners: corners,
     );
   }
 

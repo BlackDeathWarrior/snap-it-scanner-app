@@ -1,4 +1,6 @@
-import 'dart:ui' show Size;
+import 'dart:ui' show Offset, Size;
+import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart'
+    as mlkit_bc;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart'
     as mlkit;
 import 'package:mobile_scanner/mobile_scanner.dart' as ms;
@@ -14,15 +16,29 @@ class MobileScanEngine implements ScanEngine {
 
   @override
   Future<BarcodeResult?> scanBarcode(ScanInput input) async {
-    // Live camera scanning is handled by the MobileScanner widget directly.
-    // This method handles still-image barcode decode for gallery/file paths.
     if (input.filePath == null) return null;
-    final analyzer = ms.MobileScannerController();
-    // flutter_mobile_scanner doesn't expose a static decode API cleanly;
-    // for still images on mobile we fall back to null and rely on live camera.
-    // Gallery barcode decode is a stretch goal on mobile.
-    analyzer.dispose();
-    return null;
+
+    final scanner = mlkit_bc.BarcodeScanner(
+      formats: [mlkit_bc.BarcodeFormat.all],
+    );
+    try {
+      final inputImage = mlkit.InputImage.fromFilePath(input.filePath!);
+      final barcodes = await scanner.processImage(inputImage);
+      if (barcodes.isEmpty) return null;
+
+      final b = barcodes.first;
+      return BarcodeResult(
+        value: b.rawValue ?? '',
+        format: _mapMlkitFormat(b.format),
+        corners: b.cornerPoints.isEmpty
+            ? null
+            : b.cornerPoints
+                .map((p) => Offset(p.x.toDouble(), p.y.toDouble()))
+                .toList(),
+      );
+    } finally {
+      await scanner.close();
+    }
   }
 
   @override
@@ -48,9 +64,25 @@ class MobileScanEngine implements ScanEngine {
   void dispose() {
     _textRecognizer.close();
   }
+
+  BarcodeFormat _mapMlkitFormat(mlkit_bc.BarcodeFormat fmt) =>
+      switch (fmt) {
+        mlkit_bc.BarcodeFormat.qrCode => BarcodeFormat.qrCode,
+        mlkit_bc.BarcodeFormat.ean13 => BarcodeFormat.ean13,
+        mlkit_bc.BarcodeFormat.ean8 => BarcodeFormat.ean8,
+        mlkit_bc.BarcodeFormat.code128 => BarcodeFormat.code128,
+        mlkit_bc.BarcodeFormat.code39 => BarcodeFormat.code39,
+        mlkit_bc.BarcodeFormat.upca => BarcodeFormat.upcA,
+        mlkit_bc.BarcodeFormat.upce => BarcodeFormat.upcE,
+        mlkit_bc.BarcodeFormat.dataMatrix => BarcodeFormat.dataMatrix,
+        mlkit_bc.BarcodeFormat.pdf417 => BarcodeFormat.pdf417,
+        mlkit_bc.BarcodeFormat.aztec => BarcodeFormat.aztec,
+        mlkit_bc.BarcodeFormat.itf => BarcodeFormat.itf,
+        mlkit_bc.BarcodeFormat.codabar => BarcodeFormat.codabar,
+        _ => BarcodeFormat.unknown,
+      };
 }
 
-// Convenience: map mobile_scanner BarcodeFormat → our BarcodeFormat
 BarcodeFormat mapMsFormat(ms.BarcodeFormat fmt) {
   return switch (fmt) {
     ms.BarcodeFormat.qrCode => BarcodeFormat.qrCode,

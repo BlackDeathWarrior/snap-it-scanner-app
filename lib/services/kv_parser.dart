@@ -26,6 +26,19 @@ class KvParser {
       r'\b\d{4}[-/]\d{2}[-/]\d{2}\b|\b\d{2}[-/]\d{2}[-/]\d{4}\b';
   static const _batchRe =
       r'(?:batch|lot|lot\s*no\.?)[:\s]*([A-Z0-9\-]+)';
+  // MRP: label (MRP / M.R.P. / Max Retail Price) followed by a price-ish value.
+  static const _mrpRe =
+      r'(?:m\.?\s*r\.?\s*p\.?|max(?:imum)?\s+retail\s+price)\.?[:\s]*'
+      r'([₹$€£¥]?\s*\d+(?:[\.,]\d{1,2})?(?:\s*/-)?)';
+  // Quantity: explicit qty / quantity / net qty label, capturing the value.
+  static const _qtyRe =
+      r'(?:net\s+qty|quantity|qty)\.?[:\s]*'
+      r'(\d+(?:\.\d+)?\s*(?:kg|g|lb|oz|ml|l|litre|liter|n|nos|pcs|pieces|units?)?)';
+  // HSN / SAC tax code: label followed by digits.
+  static const _hsnRe = r'(?:hsn|sac)(?:\s*code)?\.?[:\s]*(\d{4,8})';
+  // Serial / IMEI: label followed by an alphanumeric token.
+  static const _serialRe =
+      r'(?:s\s*/\s*n|serial(?:\s*no\.?)?|imei)[:\s]*([A-Z0-9\-]{4,})';
 
   List<KeyValue> parse({
     required String ocrText,
@@ -53,7 +66,15 @@ class KvParser {
 
     // Deduplicate by key (keep first occurrence)
     final seen = <String>{};
-    return pairs.where((kv) => seen.add(kv.key.toLowerCase())).toList();
+    final deduped =
+        pairs.where((kv) => seen.add(kv.key.toLowerCase())).toList();
+
+    // Fallback: if OCR produced no pairs at all, show the raw text
+    if (deduped.isEmpty && ocrText.isNotEmpty) {
+      deduped.add(KeyValue(key: 'Scanned Text', value: ocrText.trim()));
+    }
+
+    return deduped;
   }
 
   List<KeyValue> _classifyBarcode(BarcodeResult b) {
@@ -110,10 +131,24 @@ class KvParser {
         }
       }
 
-      // Pattern matchers for unlabeled values
-      _matchPattern(line, _priceRe, 'Price', pairs);
-      _matchPattern(line, _weightRe, 'Weight/Volume', pairs,
-          groupIndex: 0); // full match
+      // Pattern matchers for unlabeled values.
+      // MRP and Quantity run before Price/Weight so a labeled line registers
+      // under its specific key rather than the generic one.
+      final mrpMatched =
+          _matchPattern(line, _mrpRe, 'MRP', pairs, groupIndex: 1);
+      final qtyMatched =
+          _matchPattern(line, _qtyRe, 'Quantity', pairs, groupIndex: 1);
+      _matchPattern(line, _hsnRe, 'HSN', pairs, groupIndex: 1);
+      _matchPattern(line, _serialRe, 'Serial', pairs, groupIndex: 1);
+      // Skip generic price on an MRP line already captured above.
+      if (!mrpMatched) {
+        _matchPattern(line, _priceRe, 'Price', pairs);
+      }
+      // Skip weight on a "Net Qty 500 g" line already captured as Quantity.
+      if (!qtyMatched) {
+        _matchPattern(line, _weightRe, 'Weight/Volume', pairs,
+            groupIndex: 0); // full match
+      }
       _matchPattern(line, _expiryRe, 'Expiry', pairs, groupIndex: 1);
       _matchPattern(line, _batchRe, 'Batch/Lot', pairs, groupIndex: 1);
       if (!_hasKey(pairs, 'Date')) {
@@ -124,7 +159,8 @@ class KvParser {
     return pairs;
   }
 
-  void _matchPattern(
+  /// Returns true when a value was matched and added under [key].
+  bool _matchPattern(
     String line,
     String pattern,
     String key,
@@ -137,8 +173,10 @@ class KvParser {
       final val = groupIndex == 0 ? m.group(0)! : (m.group(groupIndex) ?? '');
       if (val.isNotEmpty && !_hasKey(pairs, key)) {
         pairs.add(KeyValue(key: key, value: val.trim()));
+        return true;
       }
     }
+    return false;
   }
 
   List<KeyValue> _parseVCard(String vcard) {
@@ -198,6 +236,23 @@ class KvParser {
     'batch no': 'Batch/Lot',
     'net weight': 'Weight/Volume',
     'net wt': 'Weight/Volume',
+    'mrp': 'MRP',
+    'm.r.p': 'MRP',
+    'm.r.p.': 'MRP',
+    'max retail price': 'MRP',
+    'maximum retail price': 'MRP',
+    'qty': 'Quantity',
+    'quantity': 'Quantity',
+    'net qty': 'Quantity',
+    'hsn': 'HSN',
+    'hsn code': 'HSN',
+    'sac': 'HSN',
+    's/n': 'Serial',
+    'sn': 'Serial',
+    'serial': 'Serial',
+    'serial no': 'Serial',
+    'serial no.': 'Serial',
+    'imei': 'Serial',
   };
 
   String _normalizeKey(String s) {
